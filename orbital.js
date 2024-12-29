@@ -476,9 +476,9 @@ function renderPhase(canvas, screenX, screenY, screenRadius, colb, col, lightVec
     const ctx = canvas.getContext('2d');
     
     // Setup parameters
-    scd = Math.floor(screenRadius/50);
-    sc = Math.max(1, scd*2);
-    wd = Math.ceil(screenRadius/sc);
+    scd = Math.floor(screenRadius / 50);
+    sc = Math.max(1, scd * 2);
+    wd = Math.ceil(screenRadius / sc);
 
     // Find planet's group and get other planets in the same group
     const planetGroup = Object.entries(planetGroups).find(([_, ids]) => 
@@ -501,78 +501,109 @@ function renderPhase(canvas, screenX, screenY, screenRadius, colb, col, lightVec
         z: -planet.currentPosition.z
     });
 
-    for(let i = -wd; i < wd; i++) {
-        for(let j = -wd; j < wd; j++) {
-            const px = i * sc;
-            const py = j * sc;
+    // Initialize brightness array
+    const brightnessArray = Array.from({ length: 2 * wd }, () => Array(2 * wd).fill(0));
 
-            if(px*px + py*py >= screenRadius*screenRadius) continue;
+    // Multi-sample sun points for soft shadows
 
-            // Calculate surface normal at this pixel
-            const pz = Math.sqrt(screenRadius*screenRadius - px*px - py*py);
-            
-            // Convert to normalized vector (this is our normal)
-            const normal = vec3.normalize({
-                x: px / screenRadius,
-                y: py / screenRadius,
-                z: pz / screenRadius
-            });
 
-            // Transform normal to world space
-            const worldNormal = {
-                x: normal.x,
-                y: normal.y * Math.cos(-viewAngle * Math.PI/180) - normal.z * Math.sin(-viewAngle * Math.PI/180),
-                z: normal.y * Math.sin(-viewAngle * Math.PI/180) + normal.z * Math.cos(-viewAngle * Math.PI/180)
-            };
-
-            // Calculate world space position of this surface point
-            const worldPoint = {
-                x: planet.currentPosition.x + worldNormal.x * ephemerisData[planet.id][0],
-                y: planet.currentPosition.y + worldNormal.y * ephemerisData[planet.id][0],
-                z: planet.currentPosition.z + worldNormal.z * ephemerisData[planet.id][0]
-            };
-
-            // Calculate lighting
-            let brightness = vec3.dot(worldNormal, toSun);
-            brightness = Math.max(0, brightness); // Clamp negative values to 0
-
-            // Accumulate lighting from multiple sun samples
-            let totalLight = 0;
-            
-            // Multi-sample sun points for soft shadows
-            for(let s = 0; s < 4; s++) {
-
+    for (let i = -wd; i < wd; i++) {
+        for (let j = -wd; j < wd; j++) {
+            for (let s = 0; s < 8; s++) {
                 const sunPoint = {
-                    x: (Math.random() * 2 - 1) * sunRad-planet.currentPosition.x,
-                    y: (Math.random() * 2 - 1) * sunRad-planet.currentPosition.y,
-                    z: (Math.random() * 2 - 1) * sunRad-planet.currentPosition.z
+                    x: toSun.x + (Math.random() - 0.5) * sunRad * 2,
+                    y: toSun.y + (Math.random() - 0.5) * sunRad * 2,
+                    z: toSun.z + (Math.random() - 0.5) * sunRad * 2
                 };
-
+        
                 // Calculate light direction from surface point to sun sample
                 const lightDir = vec3.normalize(sunPoint);
+                const px = i * sc;
+                const py = j * sc;
+
+                if (px * px + py * py >= screenRadius * screenRadius) continue;
+
+                // Calculate surface normal at this pixel
+                const pz = Math.sqrt(screenRadius * screenRadius - px * px - py * py);
                 
+                // Convert to normalized vector (this is our normal)
+                const normal = vec3.normalize({
+                    x: px / screenRadius,
+                    y: py / screenRadius,
+                    z: pz / screenRadius
+                });
+
+                // Transform normal to world space
+                const worldNormal = {
+                    x: normal.x,
+                    y: normal.y * Math.cos(-viewAngle * Math.PI / 180) - normal.z * Math.sin(-viewAngle * Math.PI / 180),
+                    z: normal.y * Math.sin(-viewAngle * Math.PI / 180) + normal.z * Math.cos(-viewAngle * Math.PI / 180)
+                };
+
+                // Calculate world space position of this surface point
+                const worldPoint = {
+                    x: planet.currentPosition.x + worldNormal.x * ephemerisData[planet.id][0],
+                    y: planet.currentPosition.y + worldNormal.y * ephemerisData[planet.id][0],
+                    z: planet.currentPosition.z + worldNormal.z * ephemerisData[planet.id][0]
+                };
+
                 // Check for shadows from other planets in group
                 let isLit = true;
                 
-                for(const otherPlanet of groupPlanets) {
+                for (const otherPlanet of groupPlanets) {
                     if (otherPlanet.id !== planet.id) {
                         const otherRadius = ephemerisData[otherPlanet.id][0];
-                        if(intersectRaySphere(worldPoint, lightDir, otherPlanet.currentPosition, otherRadius)) {
+                        if (intersectRaySphere(worldPoint, lightDir, otherPlanet.currentPosition, otherRadius)) {
                             isLit = false;
                             break;
                         }
                     }
                 }
 
-                if(isLit) {
+                if (isLit) {
                     // Calculate diffuse lighting
                     const diffuse = Math.max(0, vec3.dot(worldNormal, lightDir));
-                    totalLight += diffuse;
+                    brightnessArray[i + wd][j + wd] += diffuse;
                 }
             }
-            // Add ambient light
+        }
+    }
+    // Blur the brightness array to smooth noise
+    const blurRadius = 1;
+    const blurredBrightnessArray = Array.from({ length: 2 * wd }, () => Array(2 * wd).fill(0));
+
+    for (let i = 0; i < 2 * wd; i++) {
+        for (let j = 0; j < 2 * wd; j++) {
+            let sum = 0;
+            let count = 0;
+
+            for (let di = -blurRadius; di <= blurRadius; di++) {
+                for (let dj = -blurRadius; dj <= blurRadius; dj++) {
+                    const ni = i + di;
+                    const nj = j + dj;
+
+                    if (ni >= 0 && ni < 2 * wd && nj >= 0 && nj < 2 * wd) {
+                        sum += brightnessArray[ni][nj];
+                        count++;
+                    }
+                }
+            }
+
+            blurredBrightnessArray[i][j] = sum / count;
+        }
+    }
+   // brightnessArray = blurredBrightnessArray;
+    // Render the brightness values
+    for (let i = -wd; i < wd; i++) {
+        for (let j = -wd; j < wd; j++) {
+            const px = i * sc;
+            const py = j * sc;
+
+            if (px * px + py * py >= screenRadius * screenRadius) continue;
+
+            // Calculate final brightness
             const ambient = 0.1;
-            brightness = ambient + 0*brightness+totalLight/4;
+            const brightness = ambient + blurredBrightnessArray[i + wd][j + wd] / 8;
 
             // Apply color
             const outputRGB = calculateColorWithExposure(col[0], col[1], col[2], brightness);
@@ -580,7 +611,6 @@ function renderPhase(canvas, screenX, screenY, screenRadius, colb, col, lightVec
             ctx.fillRect(screenX + px - scd, screenY + py - scd, sc, sc);
         }
     }
-
 }
 
 // Modify draw function to handle loading state
@@ -618,10 +648,10 @@ function draw() {
           }
           const trail = planet.trails;
           if (trail.length > 1) {
-              ctx.strokeStyle = planet.color.replace('1)', '0.1)'); // Make the line transparent
+              const transparency = Math.max(0.1, Math.min(0.7, 0.7 - (planet.screenRadius - 1) * 0.04));
+              ctx.strokeStyle = planet.color.replace('1)', `${transparency})`); // Make the line transparent based on screen radius
               ctx.lineWidth = Math.max(1, planet.screenRadius);
               ctx.beginPath();
-              
               
               for (let i = 0; i < trail.length; i++) {
                 const screenX = centerX + (trail[i][0] - 0*centerPos.x) * AU_TO_PIXELS * zoom;
