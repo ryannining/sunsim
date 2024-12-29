@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raytracing Balls</title>
+    <style>
+        canvas {
+            display: block;
+            margin: 0 auto;
+            background-color: #000;
+        }
+    </style>
+</head>
+<body>
+    <div style="text-align: center; margin: 10px;">
+        <label>
+            <input type="checkbox" id="volumetricToggle" checked>
+            Volumetric Lighting
+        </label>
+    </div>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 500;
+        canvas.height = 500;
+
+        // Add rendering settings
+        const renderSettings = {
+            volumetricEnabled: true
+        };
+
+        // Add event listener for toggle
+        document.getElementById('volumetricToggle').addEventListener('change', (e) => {
+            renderSettings.volumetricEnabled = e.target.checked;
+        });
+
+        // Scene setup
+        const balls = [];
+        const numBalls = 4;
+        const camera = {
+            position: { x: canvas.width/2, y: canvas.height/2, z: -1000 },
+            fov: Math.PI / 2
+        };
+        
+        // Area light (rectangle at top) - adjusted for stronger effect
+        const light = {
+            center: { x: canvas.width/2, y: -2050, z: 0 },
+            width: 500,
+            height: 500,
+            samples: 16,
+            intensity: 5.0,  // Increased intensity
+            falloff: 0.001,   // Reduced falloff for wider light cone
+            ambient: 0.0  // Very low ambient light
+        };
+
+        // Fog settings - adjusted for better visibility
+        const fog = {
+            density: 0.0001,
+            scattering: 0.025  // Increased scattering
+        };
+
+        // Volumetric settings
+        const volumetricSettings = {
+            scale: 8,
+            samples: 8,
+            steps: 16  // Increased number of steps for better volume detail
+        };
+
+        // Initialize balls with random properties
+        for (let i = 0; i < numBalls; i++) {
+            balls.push({
+                center: {
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    z: 0
+                },
+                radius: Math.random() * 20 + 10,
+                color: {
+                    r: Math.random() * 255,
+                    g: Math.random() * 255,
+                    b: Math.random() * 255
+                },
+                velocity: {
+                    x: (Math.random() - 0.5) * 4,
+                    y: (Math.random() - 0.5) * 4,
+                    z: 0
+                }
+            });
+        }
+
+        // Vector operations
+        const vec3 = {
+            add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }),
+            sub: (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }),
+            mul: (v, s) => ({ x: v.x * s, y: v.y * s, z: v.z * s }),
+            dot: (a, b) => a.x * b.x + a.y * b.y + a.z * b.z,
+            normalize: (v) => {
+                const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+                return len > 0 ? { x: v.x/len, y: v.y/len, z: v.z/len } : v;
+            }
+        };
+
+        // Ray-sphere intersection
+        function intersectSphere(origin, direction, sphere) {
+            const oc = vec3.sub(origin, sphere.center);
+            const a = vec3.dot(direction, direction);
+            const b = 2 * vec3.dot(oc, direction);
+            const c = vec3.dot(oc, oc) - sphere.radius * sphere.radius;
+            const discriminant = b * b - 4 * a * c;
+
+            if (discriminant < 0) return null;
+
+            const t = (-b - Math.sqrt(discriminant)) / (2 * a);
+            if (t < 0) return null;
+
+            const hit = vec3.add(origin, vec3.mul(direction, t));
+            const normal = vec3.normalize(vec3.sub(hit, sphere.center));
+            return { distance: t, point: hit, normal };
+        }
+
+        // Calculate shadow from area light
+        function calculateShadow(point, ball) {
+            let shadowSum = 0;
+            
+            for (let i = 0; i < light.samples; i++) {
+                // Random point on area light
+                const lightPoint = {
+                    x: light.center.x + (Math.random() - 0.5) * light.width,
+                    y: light.center.y + (Math.random() - 0.5) * light.height,
+                    z: light.center.z
+                };
+
+                const shadowRay = vec3.normalize(vec3.sub(lightPoint, point));
+                let inShadow = false;
+
+                // Check if any ball blocks the light
+                for (const otherBall of balls) {
+                    if (otherBall === ball) continue;
+                    const intersection = intersectSphere(point, shadowRay, otherBall);
+                    if (intersection) {
+                        inShadow = true;
+                        break;
+                    }
+                }
+
+                if (!inShadow) shadowSum += 1;
+            }
+
+            return shadowSum / light.samples;
+        }
+
+        // Add volumetric lighting calculation
+        function calculateVolumetricLight(origin, direction, maxDist) {
+            let accumFog = 0;
+            let transmittance = 1.0;
+            const stepSize = maxDist / volumetricSettings.steps;
+
+            for(let i = 0; i < volumetricSettings.steps; i++) {
+                const currentPos = vec3.add(origin, vec3.mul(direction, i * stepSize));
+                let shadowFactor = 0;
+
+                // Reduced samples for performance
+                for(let s = 0; s < Math.min(4, light.samples); s++) {
+                    const lightPoint = {
+                        x: light.center.x + (Math.random() - 0.5) * light.width,
+                        y: light.center.y + (Math.random() - 0.5) * light.height,
+                        z: light.center.z
+                    };
+                    
+                    const toLight = vec3.normalize(vec3.sub(lightPoint, currentPos));
+                    let blocked = false;
+                    
+                    for(const ball of balls) {
+                        if(intersectSphere(currentPos, toLight, ball)) {
+                            blocked = true;
+                            break;
+                        }
+                    }
+                    
+                    if(!blocked) shadowFactor += 1;
+                }
+                shadowFactor /= Math.min(4, light.samples);
+
+                const distToLight = Math.sqrt(
+                    (currentPos.x - light.center.x) ** 2 +
+                    (currentPos.y - light.center.y) ** 2 +
+                    (currentPos.z - light.center.z) ** 2
+                );
+                
+                const lightIntensity = shadowFactor * Math.exp(-distToLight * light.falloff) * light.intensity;
+                accumFog += transmittance * lightIntensity * fog.scattering;
+                transmittance *= Math.exp(-stepSize * fog.density);
+            }
+
+            return accumFog;
+        }
+
+        // Add bilinear interpolation helper
+        function interpolateVolumetric(volumeBuffer, x, y) {
+            const scale = volumetricSettings.scale;
+            const lowX = x / scale;
+            const lowY = y / scale;
+            
+            const x1 = Math.floor(lowX);
+            const y1 = Math.floor(lowY);
+            const x2 = Math.min(x1 + 1, Math.floor(canvas.width/scale) - 1);
+            const y2 = Math.min(y1 + 1, Math.floor(canvas.height/scale) - 1);
+            
+            const fx = lowX - x1;
+            const fy = lowY - y1;
+
+            const lowWidth = Math.ceil(canvas.width/scale);
+            
+            const v11 = volumeBuffer[y1 * lowWidth + x1] || 0;
+            const v21 = volumeBuffer[y1 * lowWidth + x2] || 0;
+            const v12 = volumeBuffer[y2 * lowWidth + x1] || 0;
+            const v22 = volumeBuffer[y2 * lowWidth + x2] || 0;
+            
+            return v11 * (1-fx) * (1-fy) +
+                   v21 * fx * (1-fy) +
+                   v12 * (1-fx) * fy +
+                   v22 * fx * fy;
+        }
+
+        // Simplified render function
+        function render() {
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            const data = imageData.data;
+
+            // Calculate volumetric lighting only if enabled
+            let volumeBuffer = null;
+            if (renderSettings.volumetricEnabled) {
+                // Low-res volumetric pass
+                const lowWidth = Math.ceil(canvas.width/volumetricSettings.scale);
+                const lowHeight = Math.ceil(canvas.height/volumetricSettings.scale);
+                volumeBuffer = new Float32Array(lowWidth * lowHeight);
+
+                for (let y = 0; y < lowHeight; y++) {
+                    for (let x = 0; x < lowWidth; x++) {
+                        const screenX = x * volumetricSettings.scale;
+                        const screenY = y * volumetricSettings.scale;
+                        
+                        const direction = vec3.normalize({
+                            x: (screenX - canvas.width/2),
+                            y: (screenY - canvas.height/2),
+                            z: canvas.height / Math.tan(camera.fov/2)
+                        });
+
+                        let maxDist = 2000;
+                        for (const ball of balls) {
+                            const intersection = intersectSphere(camera.position, direction, ball);
+                            if (intersection) {
+                                maxDist = Math.min(maxDist, intersection.distance);
+                            }
+                        }
+
+                        volumeBuffer[y * lowWidth + x] = calculateVolumetricLight(
+                            camera.position, 
+                            direction, 
+                            maxDist
+                        );
+                    }
+                }
+            }
+
+            // Full resolution pass
+            for (let y = 0; y < canvas.height; y++) {
+                for (let x = 0; x < canvas.width; x++) {
+                    const direction = vec3.normalize({
+                        x: (x - canvas.width/2),
+                        y: (y - canvas.height/2),
+                        z: canvas.height / Math.tan(camera.fov/2)
+                    });
+
+                    let hit = null;
+                    let hitBall = null;
+
+                    for (const ball of balls) {
+                        const intersection = intersectSphere(camera.position, direction, ball);
+                        if (intersection && (!hit || intersection.distance < hit.distance)) {
+                            hit = intersection;
+                            hitBall = ball;
+                        }
+                    }
+
+                    const index = (y * canvas.width + x) * 4;
+                    const volumetricLight = renderSettings.volumetricEnabled ? 
+                        interpolateVolumetric(volumeBuffer, x, y) : 0;
+
+                    if (hit) {
+                        const shadow = calculateShadow(hit.point, hitBall);
+                        const lightDir = vec3.normalize(vec3.sub(light.center, hit.point));
+                        const diffuse = Math.max(0, vec3.dot(hit.normal, lightDir));
+                        
+                        const lighting = (diffuse > 0) 
+                            ? (light.ambient + diffuse * shadow * light.intensity)
+                            : light.ambient;
+
+                        data[index] = hitBall.color.r * lighting + (volumetricLight * 255);
+                        data[index + 1] = hitBall.color.g * lighting + (volumetricLight * 255);
+                        data[index + 2] = hitBall.color.b * lighting + (volumetricLight * 255);
+                    } else {
+                        // Background - pure black if volumetric is disabled
+                        const brightness = volumetricLight * 255;
+                        data[index] = brightness;
+                        data[index + 1] = brightness;
+                        data[index + 2] = brightness;
+                    }
+                    data[index + 3] = 255;
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function update() {
+            for (const ball of balls) {
+                ball.center.x += ball.velocity.x;
+                ball.center.y += ball.velocity.y;
+
+                if (ball.center.x - ball.radius < 0 || ball.center.x + ball.radius > canvas.width) {
+                    ball.velocity.x *= -1;
+                }
+                if (ball.center.y - ball.radius < 0 || ball.center.y + ball.radius > canvas.height) {
+                    ball.velocity.y *= -1;
+                }
+            }
+        }
+
+        function loop() {
+            update();
+            render();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>

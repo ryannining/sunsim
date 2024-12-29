@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raymarching Balls</title>
+    <style>
+        canvas {
+            display: block;
+            margin: 0 auto;
+            background-color: #000;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 500;
+        canvas.height = 500;
+
+        const balls = [];
+        const numBalls = 4;
+        const lightPos = { x: canvas.width / 2, y: 50, z: 200, radius: 20 }; // Added radius for visualization
+
+        for (let i = 0; i < numBalls; i++) {
+            balls.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                z: 0, // Z position for 3D calculation
+                radius: Math.random()*20+10,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4,
+                color: {
+                    r: Math.random() * 255,
+                    g: Math.random() * 255,
+                    b: Math.random() * 255
+                }
+            });
+        }
+
+        function distance(x1, y1, x2, y2) {
+            return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        }
+
+        function getNormal(x, y, centerX, centerY, radius) {
+            const nx = (x - centerX) / radius;
+            const ny = (y - centerY) / radius;
+            const nz = Math.sqrt(Math.max(0, 1 - nx*nx - ny*ny));
+            return { nx, ny, nz };
+        }
+
+        function render() {
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            const data = imageData.data;
+
+            for (let y = 0; y < canvas.height; y++) {
+                for (let x = 0; x < canvas.width; x++) {
+                    let minDist = Infinity;
+                    let closestBall = null;
+                    let shadow = 1.0;
+
+                    // Check if we're inside the light ball's projection
+                    const lightDist2D = distance(x, y, lightPos.x, lightPos.y) - lightPos.radius;
+                    if (lightDist2D < 0) {
+                        // Render light ball
+                        data[(y * canvas.width + x) * 4] = 255;
+                        data[(y * canvas.width + x) * 4 + 1] = 255;
+                        data[(y * canvas.width + x) * 4 + 2] = 200;
+                        data[(y * canvas.width + x) * 4 + 3] = 255;
+                        continue;
+                    }
+
+                    for (const ball of balls) {
+                        const dist = distance(x, y, ball.x, ball.y) - ball.radius;
+                        if (dist < minDist) {
+                            minDist = dist;
+                            closestBall = ball;
+                        }
+                    }
+
+                    // Shadow ray marching
+                    if (closestBall && minDist < 0) {
+                        const normal = getNormal(x, y, closestBall.x, closestBall.y, closestBall.radius);
+                        const startX = x + normal.nx * 0.1; // Offset slightly from surface
+                        const startY = y + normal.ny * 0.1;
+
+                        // March towards light
+                        for (let i = 0; i < 10; i++) {
+                            const t = i / 10.0; // Interpolation factor
+                            const checkX = startX + (lightPos.x - startX) * t;
+                            const checkY = startY + (lightPos.y - startY) * t;
+
+                            for (const ball of balls) {
+                                if (ball === closestBall) continue; // Skip self-shadowing
+                                const shadowDist = distance(checkX, checkY, ball.x, ball.y) - ball.radius;
+                                if (shadowDist < 1.0) {
+                                    shadow = 0.3; // Softer shadows
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    const index = (y * canvas.width + x) * 4;
+                    
+                    if (closestBall && minDist < 0) {
+                        const normal = getNormal(x, y, closestBall.x, closestBall.y, closestBall.radius);
+                        
+                        const lightDist = Math.sqrt(
+                            (x - lightPos.x)**2 + 
+                            (y - lightPos.y)**2 + 
+                            lightPos.z**2
+                        );
+                        const lx = (lightPos.x - x) / lightDist;
+                        const ly = (lightPos.y - y) / lightDist;
+                        const lz = lightPos.z / lightDist;
+
+                        const dot = normal.nx * lx + normal.ny * ly + normal.nz * lz;
+                        const diffuse = Math.max(0.1, dot);
+                        
+                        // Combine lighting with shadows
+                        const lighting = (0.2 + 0.8 * diffuse) * shadow;
+
+                        data[index] = closestBall.color.r * lighting;
+                        data[index + 1] = closestBall.color.g * lighting;
+                        data[index + 2] = closestBall.color.b * lighting;
+                        data[index + 3] = 255;
+                    } else {
+                        const brightness = Math.max(0, 5 - minDist * 0.1) * 0.2 * shadow;
+                        data[index] = brightness;
+                        data[index + 1] = brightness;
+                        data[index + 2] = brightness;
+                        data[index + 3] = 255;
+                    }
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function update() {
+            for (const ball of balls) {
+                ball.x += ball.vx;
+                ball.y += ball.vy;
+
+                if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) {
+                    ball.vx *= -1;
+                }
+                if (ball.y - ball.radius < 0 || ball.y + ball.radius > canvas.height) {
+                    ball.vy *= -1;
+                }
+            }
+        }
+
+        function loop() {
+            update();
+            render();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
