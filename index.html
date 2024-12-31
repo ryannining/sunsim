@@ -12,6 +12,7 @@
             <div class="control-group">
                 <button id="solarEclipseBtn">Solar Eclipse (8/4/2024)</button>
                 <button id="lunarEclipseBtn">Lunar Eclipse (7/9/2025)</button>
+                <button id="osirisLaunchBtn">OSIRIS-REx Launch (9/8/2016)</button>
                 <input type="date" id="dateInput" min="2010-01-01" max="2026-12-31">
                 <button id="setDateBtn">Set Date</button>
             </div>
@@ -22,13 +23,18 @@
             </div>
             <div class="control-group">
                 <label>Time Step (days):</label>
-                <input type="range" id="timeStepSlider" min="0.001" max="0.1" step="0.001" value="0.01">
+                <input type="range" id="timeStepSlider" min="0.001" max="1" step="0.001" value="0.01">
                 <span id="timeStepValue">0.01</span>
             </div>
             <div class="control-group">
                 <label>View Angle (degrees):</label>
                 <input type="range" id="angleSlider" min="0" max="89" step="1" value="15">
                 <span id="angleValue">45</span>
+            </div>
+            <div class="control-group">
+                <label>Rotation Angle (degrees):</label>
+                <input type="range" id="rotationSlider" min="0" max="360" step="1" value="0">
+                <span id="rotationValue">0</span>
             </div>
             <div class="control-group">
                 <label>Zoom:</label>
@@ -40,12 +46,36 @@
                 <select id="centerSelect">
                     <option value="0">Sun</option>
                     <option value="3398">Stattmayer 's Comet</option>
+                    <option value="-64">OSIRIS-REx</option>
+                    <option value="2101955">Bennu</option>
                     <option value="199">Mercury</option>
                     <option value="299">Venus</option>
                     <option value="399" selected>Earth</option>
                     <option value="301">Moon</option>
                     <option value="499">Mars</option>
                     <option value="599">Jupiter</option>
+                    <option value="501">Io</option>
+                    <option value="502">Europa</option>
+                    <option value="503">Ganymede</option>
+                    <option value="504">Callisto</option>
+                    <option value="699">Saturn</option>
+                </select>
+                <label>Light View:</label>
+                <select id="lightSelect">
+                    <option value="0">Sun</option>
+                    <option value="3398">Stattmayer 's Comet</option>
+                    <option value="-64">OSIRIS-REx</option>
+                    <option value="2101955">Bennu</option>
+                    <option value="199">Mercury</option>
+                    <option value="299">Venus</option>
+                    <option value="399">Earth</option>
+                    <option value="301" selected>Moon</option>
+                    <option value="499">Mars</option>
+                    <option value="599">Jupiter</option>
+                    <option value="501">Io</option>
+                    <option value="502">Europa</option>
+                    <option value="503">Ganymede</option>
+                    <option value="504">Callisto</option>
                     <option value="699">Saturn</option>
                 </select>
             </div>

@@ -17,19 +17,35 @@ const ctx = canvas.getContext('2d');
 
 let centerX,centerY,sunX,sunY;
 // Set canvas size
-canvas.width = 1024;
+canvas.width = 1400;
 canvas.height = 600;
 const sunRad=0.00465; // in AU
 // Update planet data structure to not hardcode sizes
 const planets = {
-    mercury: { id: '199', color: 'rgba(160, 82, 45, 1)' }, // Mercury center
-    venus: { id: '299', color: 'rgba(222, 184, 135, 1)' },   // Venus center
-    earth: { id: '399', color: 'rgba(65, 105, 225, 1)' },   // Earth center
-    moon: { id: '301', color: 'rgba(204, 204, 204, 1)', parent: '399' }, // Add Moon with Earth as parent
-    mars: { id: '499', color: 'rgba(205, 92, 92, 1)' },    // Mars center
-    jupiter: { id: '599', color: 'rgba(218, 165, 32, 1)' }, // Jupiter center
-    saturn: { id: '699', color: 'rgba(244, 164, 96, 1)' },  // Saturn center
-    stattmayer: { id: '3398', color: 'rgba(0, 255, 255, 1)', isComet: true }, // Add Halley's Comet
+    mercury: { id: '199', color: 'rgba(160, 82, 45, 1)' ,linear:false}, // Mercury center
+    venus: { id: '299', color: 'rgba(222, 184, 135, 1)' ,linear:false},   // Venus center
+    earth: { id: '399', color: 'rgba(65, 105, 225, 1)' ,linear:false},   // Earth center
+    moon: { id: '301', color: 'rgba(204, 204, 204, 1)', parent: '399' ,linear:false}, // Add Moon with Earth as parent
+    mars: { id: '499', color: 'rgba(205, 92, 92, 1)' ,linear:false},    // Mars center
+    jupiter: { id: '599', color: 'rgba(218, 165, 32, 1)' ,linear:false}, // Jupiter center
+    io: { id: '501', color: 'rgba(255, 200, 0, 1)', parent: '599' ,linear:false},
+    europa: { id: '502', color: 'rgba(255, 255, 224, 1)', parent: '599' ,linear:false},
+    ganymede: { id: '503', color: 'rgba(139, 129, 76, 1)', parent: '599' ,linear:false},
+    callisto: { id: '504', color: 'rgba(119, 119, 119, 1)', parent: '599' ,linear:false},
+    saturn: { id: '699', color: 'rgba(244, 164, 96, 1)' ,linear:false},  // Saturn center
+    stattmayer: { id: '3398', color: 'rgba(0, 255, 255, 1)', isComet: true ,linear:false}, // Add Halley's Comet
+    osirisrex: { id: '-64', color: 'rgba(255, 0, 255, 1)', 
+        isSpacecraft: true,
+        linear:true,
+        startDate: new Date('2016-09-09'),
+        endDate: new Date('2023-09-24') }, // Add OSIRIS-REx
+    bennu: { 
+        id: '2101955',
+        linear:true, 
+        color: 'rgba(169, 169, 169, 1)',
+        startDate: new Date('2016-09-08'),
+        endDate: new Date('2023-09-24')
+    }
 };
 
 const planetGroups = {
@@ -37,9 +53,10 @@ const planetGroups = {
     venusSystem: ['299'],            // Venus
     earthSystem: ['399', '301'],     // Earth and Moon
     marsSystem: ['499'],             // Mars
-    jupiterSystem: ['599'],          // Jupiter and moons
+    jupiterSystem: ['599', '501', '502', '503', '504'],          // Jupiter and moons
     saturnSystem: ['699'],           // Saturn and moons
-    cometSystem: ['3398']            // Comets
+    cometSystem: ['3398'],            // Comets
+    spacecraftSystem: ['-64']  // Add spacecraft group
 };
 
 // Add after planets definition
@@ -78,7 +95,16 @@ let showOrbits = false;
 
 // Add debug logging to fetchEphemerisData
 async function fetchEphemerisData(objectId, startDate, endDate) {
-    console.log(`Fetching data for object ID: ${objectId}`);
+    const planet = Object.values(planets).find(p => p.id === objectId);
+    if (planet) {
+        // Use object's date range if specified
+        if (planet.startDate && planet.endDate) {
+            startDate = new Date(Math.max(startDate.getTime(), planet.startDate.getTime()));
+            endDate = new Date(Math.min(endDate.getTime(), planet.endDate.getTime()));
+        }
+    }
+
+    console.log(`Fetching data for object ID: ${objectId} from ${startDate.toISOString()} to ${endDate.toISOString()}`);
     const params = new URLSearchParams({
         format: 'json',
         COMMAND: objectId,
@@ -115,7 +141,7 @@ function parseEphemerisData(data, objectId) {
     const lines = data.result.split('\n');
     let isDataSection = false;
     let isPhysicalDataSection = false;
-    let  radiusAU=0.001;
+    let  radiusAU=0.00000001;
     // Parse physical data first
     for (const lline of lines) {
         const line = lline.toLowerCase();
@@ -182,58 +208,76 @@ function parseEphemerisData(data, objectId) {
 
 // Add center view tracking
 let centerObject = 399;
+let lightObject = 301;
 
 // Modify calculatePosition to handle different centers
-let centerPos = { x: 0, y: 0, z: 0 };
+let centerPos=lightPos= { x: 0, y: 0, z: 0 };
 function calculatePosition(planet, date) {
-    if (!ephemerisData[planet.id] || ephemerisData[planet.id].length === 0) {
-        return { x: 0, y: 0, z: 0 };
+    planet.currentPosition=null;
+    if (!ephemerisData[planet.id] || ephemerisData[planet.id].length === 0 ||
+        (planet.startDate && date < planet.startDate) ||
+        (planet.endDate && date > planet.endDate)) {
+        return null; // Return null for invalid dates
     }
     
     const data = ephemerisData[planet.id][1];
     const closestIndex = data.findIndex(entry => entry.date >= date);
-    
+    let position = null;
     if (closestIndex === -1 || closestIndex === 0) {
-        return data[0].position;
-    }
+        //
+    } else {
     
-    // Get surrounding points for interpolation
-    const p_1 = data[Math.max(0, closestIndex - 2)].position;
-    const p0 = data[closestIndex - 1].position;
-    const p3 = data[closestIndex].position;
-    const p4 = data[Math.min(data.length - 1, closestIndex + 1)].position;
+        // Get surrounding points for interpolation
+        const p_1 = data[Math.max(0, closestIndex - 2)].position;
+        const p0 = data[closestIndex - 1].position;
+        const p3 = data[closestIndex].position;
+        const p4 = data[Math.min(data.length - 1, closestIndex + 1)].position;
 
-    // Calculate interpolation progress
-    const t = (date - data[closestIndex - 1].date) / (data[closestIndex].date - data[closestIndex - 1].date);
+        // Calculate interpolation progress
+        const t = (date - data[closestIndex - 1].date) / (data[closestIndex].date - data[closestIndex - 1].date);
 
-    // Calculate control points using Catmull-Rom approach
-    const p1 = {
-        x: p0.x + (p3.x - p_1.x) / 6,
-        y: p0.y + (p3.y - p_1.y) / 6,
-        z: p0.z + (p3.z - p_1.z) / 6
-    };
+        // Linear interpolation
+        const uselinear=planet.linear;
+        if (uselinear) {
+            const p0 = data[closestIndex - 1].position;
+            const p1 = data[closestIndex].position;
 
-    const p2 = {
-        x: p3.x - (p4.x - p0.x) / 6,
-        y: p3.y - (p4.y - p0.y) / 6,
-        z: p3.z - (p4.z - p0.z) / 6
-    };
-
-    // Cubic Bézier interpolation
-    const position = {
-        x: Math.pow(1 - t, 3) * p0.x + 3 * Math.pow(1 - t, 2) * t * p1.x + 
-           3 * (1 - t) * Math.pow(t, 2) * p2.x + Math.pow(t, 3) * p3.x,
-        y: Math.pow(1 - t, 3) * p0.y + 3 * Math.pow(1 - t, 2) * t * p1.y + 
-           3 * (1 - t) * Math.pow(t, 2) * p2.y + Math.pow(t, 3) * p3.y,
-        z: Math.pow(1 - t, 3) * p0.z + 3 * Math.pow(1 - t, 2) * t * p1.z + 
-           3 * (1 - t) * Math.pow(t, 2) * p2.z + Math.pow(t, 3) * p3.z
-    };
-
-    // Update center position if this is the center object
-    if (centerObject !== 0) {
-        const centerPlanet = planet.id == centerObject;
-        if (centerPlanet) {
+            position = {
+                x: p0.x + t * (p1.x - p0.x),
+                y: p0.y + t * (p1.y - p0.y),
+                z: p0.z + t * (p1.z - p0.z)
+            };
+        } else {
+            // Calculate control points using Catmull-Rom approach
+            const p1 = {
+                x: p0.x + (p3.x - p_1.x) / 6,
+                y: p0.y + (p3.y - p_1.y) / 6,
+                z: p0.z + (p3.z - p_1.z) / 6
+            };
+    
+            const p2 = {
+                x: p3.x - (p4.x - p0.x) / 6,
+                y: p3.y - (p4.y - p_1.y) / 6,
+                z: p3.z - (p4.z - p0.z) / 6
+            };
+    
+            // Cubic Bézier interpolation
+            position = {
+                x: Math.pow(1 - t, 3) * p0.x + 3 * Math.pow(1 - t, 2) * t * p1.x + 
+                3 * (1 - t) * Math.pow(t, 2) * p2.x + Math.pow(t, 3) * p3.x,
+                y: Math.pow(1 - t, 3) * p0.y + 3 * Math.pow(1 - t, 2) * t * p1.y + 
+                3 * (1 - t) * Math.pow(t, 2) * p2.y + Math.pow(t, 3) * p3.y,
+                z: Math.pow(1 - t, 3) * p0.z + 3 * Math.pow(1 - t, 2) * t * p1.z + 
+                3 * (1 - t) * Math.pow(t, 2) * p2.z + Math.pow(t, 3) * p3.z
+            };
+        }
+        // Update center position if this is the center object
+        position=vec3.rotateXY(position, rotationAngle * Math.PI / 180);
+        if (planet.id == centerObject) {
             centerPos = position;
+        }
+        if (planet.id == lightObject) {
+            lightPos = position;
         }
     }
 
@@ -281,7 +325,7 @@ centerY = canvas.height / 2 + viewOffsetY;
 
 // Add right-click drag tracking
 let isRightDragging = false;
-let lastRightY = 0;
+let lastRightY ,lastRightX= 0;
 
 // Add mouse event listeners
 canvas.addEventListener('mousedown', (e) => {
@@ -308,12 +352,20 @@ canvas.addEventListener('mousemove', (e) => {
         draw();
     } else if (isRightDragging) {
         const dy = e.clientY - lastRightY;
+        const dx = e.clientX - lastRightX;
         viewAngle = Math.max(1, Math.min(89, viewAngle + dy * 0.5));
+        rotationAngle = Math.max(0, Math.min(360, rotationAngle + dx * 0.5));
         document.getElementById('angleSlider').value = viewAngle;
         document.getElementById('angleValue').textContent = Math.round(viewAngle);
+        document.getElementById('rotationSlider').value = rotationAngle;
+        document.getElementById('rotationValue').textContent = Math.round(rotationAngle);
         lastRightY = e.clientY;
-
-        draw();
+        lastRightX = e.clientX;
+        //if (!isRunning) return;
+        if (!this.lastDrawTime || Date.now() - this.lastDrawTime > 100) {
+            this.lastDrawTime = Date.now();
+            draw();
+        }
     }
     
 });
@@ -323,6 +375,7 @@ canvas.addEventListener('mouseup', (e) => {
         isDragging = false;
     } else if (e.button === 2) {
         isRightDragging = false;
+        
     }
 });
 
@@ -361,6 +414,7 @@ canvas.addEventListener('click', (e) => {
 
     Object.entries(planets).forEach(([name, planet]) => {
         const pos = planet.screenPosition;
+        if (pos === null) return; // Skip drawing if position is null
         const r = planet.screenRadius;
         screenX = centerX + pos.x;
         screenY = centerY + pos.y - pos.z;
@@ -396,15 +450,7 @@ function calculateLightVector(planetPos) {
     };
     return [rotatedVector.x / mag, rotatedVector.y / mag, rotatedVector.z / mag];
 
-    // screenX=centerX + (planetPos.x - centerPos.x) * AU_TO_PIXELS * zoom;
-    // screenY=centerY + (planetPos.y - centerPos.y) * Math.cos(viewAngle * Math.PI / 180) * AU_TO_PIXELS * zoom - (planetPos.z - centerPos.z) * AU_TO_PIXELS * zoom;
-    // const sunPos = {x: sunX, y: sunY, z: 0};
 
-    // const dx = sunPos.x - screenX;
-    // const dy = sunPos.y - screenY;
-    // const dz = planetPos.y;
-    // const mag = Math.sqrt(dx*dx + dy*dy + dz*dz);
-    // return [dx/mag, dy/mag, z*(dz>0?-1:1)];
 }
 function calculateColorWithExposure(r, g, b, exposure) {
 
@@ -417,6 +463,9 @@ function calculateColorWithExposure(r, g, b, exposure) {
     return [r, g, b];
 
   }
+// Add after other global variables
+let rotationAngle = 0;
+
 const vec3 = {
     add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }),
     sub: (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }),
@@ -454,6 +503,15 @@ const vec3 = {
             y: centerY + transformed.y * AU_TO_PIXELS * zoom,
             z: transformed.z * AU_TO_PIXELS * zoom
         };
+    },
+    rotateXY: (v, angle) => {
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        return {
+            x: v.x * cosA - v.y * sinA,
+            y: v.x * sinA + v.y * cosA,
+            z: v.z
+        };
     }
 };
 
@@ -472,7 +530,7 @@ function intersectRaySphere(origin, direction, sphereCenter, sphereRadius) {
 }
 
 // Replace renderPhase function with this improved version with ray tracing shadow (can do umbra and penumbra)
-function renderPhase(canvas, screenX, screenY, screenRadius, colb, col, lightVector, planet) {
+function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
     const ctx = canvas.getContext('2d');
     
     // Setup parameters
@@ -602,8 +660,8 @@ function renderPhase(canvas, screenX, screenY, screenRadius, colb, col, lightVec
             if (px * px + py * py >= screenRadius * screenRadius) continue;
 
             // Calculate final brightness
-            const ambient = 0.1;
-            const brightness = ambient + blurredBrightnessArray[i + wd][j + wd] / 8;
+            
+            const brightness = blurredBrightnessArray[i + wd][j + wd] / 8;
 
             // Apply color
             const outputRGB = calculateColorWithExposure(col[0], col[1], col[2], brightness);
@@ -626,26 +684,31 @@ function draw() {
     
     centerPos = { x: 0, y: 0, z: 0 };
     Object.entries(planets).forEach(([name, planet]) => {
-        calculatePosition(planet, currentDate);
+        const pos = calculatePosition(planet, currentDate);
+        
     });
-
-
-    
+    // rotate centerpos
 
     Object.entries(planets).forEach(([name, planet]) => {
           // Update trail
-          const pos = planet.currentPosition;
+          const rotatedPos = planet.currentPosition;
+          planet.screenPosition=null;
+          if (rotatedPos === null) return; // Skip drawing if position is null
+          // Apply rotation before screen transform
+         
           const screenPos = {
-              x: (pos.x - centerPos.x) * AU_TO_PIXELS * zoom,
-              y: (pos.y - centerPos.y) * Math.cos(viewAngle * Math.PI / 180) * AU_TO_PIXELS * zoom,
-              z: (pos.z - centerPos.z) * AU_TO_PIXELS * zoom
+              x: (rotatedPos.x - centerPos.x) * AU_TO_PIXELS * zoom,
+              y: (rotatedPos.y - centerPos.y) * Math.cos(viewAngle * Math.PI / 180) * AU_TO_PIXELS * zoom,
+              z: (rotatedPos.z - centerPos.z) * AU_TO_PIXELS * zoom
           };
           planet.screenRadius = ephemerisData[planet.id][0]*AU_TO_PIXELS*zoom;
           planet.screenPosition = screenPos;
-          planet.trails.push([pos.x-centerPos.x, pos.y-centerPos.y,pos.z-centerPos.z]);        
-          if (planet.trails.length > 1000) {
-              planet.trails.shift();
-          }
+          if (isRunning){
+             planet.trails.push([rotatedPos.x-centerPos.x, rotatedPos.y-centerPos.y,rotatedPos.z-centerPos.z]);        
+            if (planet.trails.length > 1000) {
+                planet.trails.shift();
+            }
+            }
           const trail = planet.trails;
           if (trail.length > 1) {
               const transparency = Math.max(0.1, Math.min(0.7, 0.7 - (planet.screenRadius - 1) * 0.04));
@@ -714,8 +777,9 @@ function draw() {
             for (let index = 0; index < vectors.length; index += 2) {
                 const vector = vectors[index];
                 const pos = vector.position;
-                const screenX = centerX + (pos.x-centerPos.x) * AU_TO_PIXELS * zoom;
-                const screenY = centerY + (pos.y-centerPos.y) * Math.cos(viewAngle * Math.PI / 180) * AU_TO_PIXELS * zoom - (pos.z-centerPos.z) * AU_TO_PIXELS * zoom;
+                const rotatedPos = vec3.rotateXY(pos, rotationAngle * Math.PI / 180);
+                const screenX = centerX + (rotatedPos.x-centerPos.x) * AU_TO_PIXELS * zoom;
+                const screenY = centerY + (rotatedPos.y-centerPos.y) * Math.cos(viewAngle * Math.PI / 180) * AU_TO_PIXELS * zoom - (rotatedPos.z-centerPos.z) * AU_TO_PIXELS * zoom;
 
                 if (index === 0) {
                     firstScreenX = screenX;
@@ -736,9 +800,11 @@ function draw() {
     }
 
     // Draw lines from Sun to Earth and Moon
+    // Draw lines from Sun to Earth and Moon
     const drawLine = (planet) => {
         const spos = planet.screenPosition;
-        const pos = planet.currentPosition;
+        if (spos === null) return; // Skip drawing if position is null
+
         const screenX =centerX+ spos.x;
         const screenY = centerY+spos.y-spos.z;
         const vec=[-screenY+sunY,screenX-sunX];
@@ -755,14 +821,6 @@ function draw() {
         const planetP=[[screenX-vec[0]*pR,screenY-vec[1]*pR],
                     [screenX+vec[0]*pR,screenY+vec[1]*pR]];
 
-        // ctx.beginPath();
-        // ctx.moveTo(sunP[0][0], sunP[0][1]);
-        // ctx.lineTo(sunP[1][0], sunP[1][1]);
-        // ctx.stroke();
-        // ctx.beginPath();
-        // ctx.moveTo(planetP[0][0], planetP[0][1]);
-        // ctx.lineTo(planetP[1][0], planetP[1][1]);
-        // ctx.stroke();
         
         function drawLightLine(sunPoint,planetPoint,col1,col2) {
                 ctx.strokeStyle = col1;//'rgba(255, 255, 0, 0.5)'; // Red thin transparent line
@@ -806,17 +864,13 @@ function draw() {
         }
         
 
+
     
     };
 
-
-    // drawLine(planets.earth);
-    // drawLine(planets.moon);
-    
-
-
     Object.entries(planets).forEach(([name, planet]) => {
         let pos = planet.screenPosition;
+        if (pos === null) return; // Skip drawing if position is null
         const screenX = centerX + pos.x;
         const screenY = centerY + pos.y - pos.z;
         
@@ -831,7 +885,7 @@ function draw() {
         } else {
         
             // Calculate light vector from sun to planet
-            const lightVector = calculateLightVector(planet.currentPosition);
+            //const lightVector = calculateLightVector(planet.currentPosition);
             
             // Get planet color components
             const colorStr = planet.color;
@@ -845,9 +899,7 @@ function draw() {
                 screenX, // x center
                 screenY, // y center
                 screenRadius, // radius in pixels
-                [0,0,0], // background color
                 [r,g,b], // planet color
-                lightVector,
                 planet // planet object
             );
         }
@@ -860,33 +912,9 @@ function draw() {
 
     // After drawing everything else, render the overview if centered on a planet
     if (centerObject !== 0) {
-        const centeredPlanet = Object.entries(planets).find(([name, planet]) => planet.id === centerObject.toString());
+        const centeredPlanet = Object.entries(planets).find(([name, planet]) => planet.id === lightObject.toString());
         drawLine(centeredPlanet[1]);
-    //     if (centeredPlanet) {
-    //         const [name, planet] = centeredPlanet;
-    //         const planetPos = planet.currentPosition;
 
-    //         // Calculate light vector from sun to planet
-    //         const lightVector = calculateLightVector(planetPos);
-            
-    //         // Get planet color components
-    //         const colorStr = planet.color;
-    //         const r = parseInt(colorStr.slice(1,3), 16);
-    //         const g = parseInt(colorStr.slice(3,5), 16);
-    //         const b = parseInt(colorStr.slice(5,7), 16);
-            
-    //         // Render planet phase in overview
-    //         renderPhase(
-    //             overviewCanvas,
-    //             50, // x center
-    //             50, // y center
-    //             40, // radius in pixels
-    //             [0,0,0], // background color
-    //             [r,g,b], // planet color
-    //             lightVector,
-    //             name.charAt(0).toUpperCase() + name.slice(1) // planet name
-    //         );
-    //     }
     }
 }
 
@@ -943,6 +971,16 @@ document.getElementById('solarEclipseBtn').addEventListener('click', () => {
     clearTrails();
     draw();
 });
+document.getElementById('osirisLaunchBtn').addEventListener('click', () => {
+    const osirisRexDate = new Date('2016-09-08');
+    currentDate = osirisRexDate;
+    document.getElementById('dateSlider').value = osirisRexDate.getTime();
+    document.getElementById('currentDate').textContent = osirisRexDate.toLocaleDateString();
+    clearTrails();
+    draw();
+});
+    
+
 function animate() {
     if (!isRunning) return;
     
@@ -970,6 +1008,13 @@ document.getElementById('centerSelect').addEventListener('change', (e) => {
     clearTrails();
     draw();
 });
+document.getElementById('lightSelect').addEventListener('change', (e) => {
+    lightObject = parseInt(e.target.value);
+    viewOffsetX = 0;
+    viewOffsetY = 0;
+    clearTrails();
+    draw();
+});
 
 // Add after other event listeners
 document.getElementById('setDateBtn').addEventListener('click', () => {
@@ -982,6 +1027,15 @@ document.getElementById('setDateBtn').addEventListener('click', () => {
         clearTrails();
         draw();
     }
+});
+
+// Add event listener for rotation slider
+document.getElementById('rotationSlider').addEventListener('input', (e) => {
+    rotationAngle = parseInt(e.target.value);
+    document.getElementById('rotationValue').textContent = rotationAngle;
+    // Clear trails when changing angle
+    clearTrails();
+    draw();
 });
 
 // Initialize the simulation
