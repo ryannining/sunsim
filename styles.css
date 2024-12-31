@@ -56,8 +56,7 @@ button {
     display: block;
 }
 #solarSystem {
-    width: 1024px;
-    height: 600px;
+
     border: 1px solid #333;
     background: #000;
 }
