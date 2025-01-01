@@ -1,19 +1,23 @@
 let ephemerisData = {};
+// ephemeris=null;
 if (typeof ephemeris === 'undefined') ; else 
 {
-    ephemerisData=ephemeris;
-    // Convert date strings to Date objects
-    for (const [id, data] of Object.entries(ephemerisData)) {
-        if (data && data[1]) {
-            data[1] = data[1].map(entry => ({
-                ...entry,
-                date: new Date(entry.date)
-            }));
+    if (ephemeris) {
+        ephemerisData=ephemeris;
+        // Convert date strings to Date objects
+        for (const [id, data] of Object.entries(ephemerisData)) {
+            if (data && data[1]) {
+                data[1] = data[1].map(entry => ({
+                    ...entry,
+                    date: new Date(entry.date)
+                }));
+            }
         }
     }
 }
 const canvas = document.getElementById('solarSystem');
 const ctx = canvas.getContext('2d');
+// Load Earth texture
 
 let centerX,centerY,sunX,sunY;
 // Set canvas size
@@ -22,17 +26,69 @@ canvas.height = 600;
 const sunRad=0.00465; // in AU
 // Update planet data structure to not hardcode sizes
 const planets = {
-    mercury: { id: '199', color: 'rgba(160, 82, 45, 1)' ,linear:false}, // Mercury center
-    venus: { id: '299', color: 'rgba(222, 184, 135, 1)' ,linear:false},   // Venus center
-    earth: { id: '399', color: 'rgba(65, 105, 225, 1)' ,linear:false},   // Earth center
-    moon: { id: '301', color: 'rgba(204, 204, 204, 1)', parent: '399' ,linear:false}, // Add Moon with Earth as parent
-    mars: { id: '499', color: 'rgba(205, 92, 92, 1)' ,linear:false},    // Mars center
-    jupiter: { id: '599', color: 'rgba(218, 165, 32, 1)' ,linear:false}, // Jupiter center
+    mercury: { 
+        id: '199', 
+        color: 'rgba(160, 82, 45, 1)', 
+        linear: false,
+        rotationPeriod: 58.646, // days
+        initialRotation: 0 
+    },
+    venus: { 
+        id: '299', 
+        color: 'rgba(222, 184, 135, 1)', 
+        linear: false,
+        rotationPeriod: -243.018, // negative indicates retrograde rotation
+        initialRotation: 0 ,
+        textureFile: 'venus.jpg'
+    },
+    earth: { 
+        id: '399', 
+        color: 'rgba(65, 105, 225, 1)', 
+        linear: false,
+        rotationPeriod: 0.99726968, // sidereal day in days
+        initialRotation: 0 ,
+        textureFile: 'earth.jpg'
+    },
+    moon: { 
+        id: '301', 
+        color: 'rgba(204, 204, 204, 1)', 
+        parent: '399', 
+        linear: false,
+        rotationPeriod: 27.321661, // tidally locked to orbital period
+        initialRotation: 0 ,
+        textureFile: 'moon.jpg'
+    },
+    mars: { 
+        id: '499', 
+        color: 'rgba(205, 92, 92, 1)', 
+        linear: false,
+        rotationPeriod: 1.02595675, 
+        initialRotation: 0 ,
+        textureFile: 'mars.jpg'
+    },
+    jupiter: { 
+        id: '599', 
+        color: 'rgba(218, 165, 32, 1)', 
+        linear: false,
+        rotationPeriod: 0.41354, 
+        initialRotation: 0 ,
+        textureFile: 'jupiter.jpg'
+    },
     io: { id: '501', color: 'rgba(255, 200, 0, 1)', parent: '599' ,linear:false},
     europa: { id: '502', color: 'rgba(255, 255, 224, 1)', parent: '599' ,linear:false},
     ganymede: { id: '503', color: 'rgba(139, 129, 76, 1)', parent: '599' ,linear:false},
     callisto: { id: '504', color: 'rgba(119, 119, 119, 1)', parent: '599' ,linear:false},
-    saturn: { id: '699', color: 'rgba(244, 164, 96, 1)' ,linear:false},  // Saturn center
+    saturn: { 
+        id: '699', 
+        color: 'rgba(244, 164, 96, 1)', 
+        linear: false, 
+        textureFile: 'saturn.jpg',
+        rings: {
+            innerRadius: 1.17, // Relative to planet radius
+            outerRadius: 2.3,  // Relative to planet radius
+            color: 'rgba(222, 184, 135, 0.8)'
+        }
+    },
     stattmayer: { id: '3398', color: 'rgba(0, 255, 255, 1)', isComet: true ,linear:false}, // Add Halley's Comet
     osirisrex: { id: '-64', color: 'rgba(255, 0, 255, 1)', 
         isSpacecraft: true,
@@ -67,6 +123,27 @@ function clearTrails() {
     });
 }
 
+function loadTextures() {
+    Object.entries(planets).forEach(([name, planet]) => {
+        planet.texture = null;
+        if (planet.textureFile) {
+            const img = new Image();
+            img.src = planet.textureFile;
+            img.onload = () => {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = img.width;
+                tempCanvas.height = img.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(img, 0, 0);
+                planet.texture = tempCtx.getImageData(0, 0, img.width, img.height).data;
+                console.log(`${name.charAt(0).toUpperCase() + name.slice(1)} texture loaded`);
+            };
+        }
+    });
+}
+
+loadTextures();
+
 let isRunning = false;
 let currentDate = new Date('2010-01-01'); // Update initial date to 2010
 let timeStep = 0.01; // days
@@ -85,7 +162,7 @@ const systemBounds = {
     maxZ: -Infinity
 };
 
-let zoom = 9000; // Add back zoom variable
+let zoom = 97000; // Add back zoom variable
 
 // Add orbit visibility state
 let showOrbits = false;
@@ -248,27 +325,25 @@ function calculatePosition(planet, date) {
                 z: p0.z + t * (p1.z - p0.z)
             };
         } else {
-            // Calculate control points using Catmull-Rom approach
-            const p1 = {
-                x: p0.x + (p3.x - p_1.x) / 6,
-                y: p0.y + (p3.y - p_1.y) / 6,
-                z: p0.z + (p3.z - p_1.z) / 6
+            // Calculate control points using Lagrange polynomial interpolation
+            const L = (t, t0, t1, t2, t3, p0, p1, p2, p3) => {
+                const L0 = ((t - t1) * (t - t2) * (t - t3)) / ((t0 - t1) * (t0 - t2) * (t0 - t3));
+                const L1 = ((t - t0) * (t - t2) * (t - t3)) / ((t1 - t0) * (t1 - t2) * (t1 - t3));
+                const L2 = ((t - t0) * (t - t1) * (t - t3)) / ((t2 - t0) * (t2 - t1) * (t2 - t3));
+                const L3 = ((t - t0) * (t - t1) * (t - t2)) / ((t3 - t0) * (t3 - t1) * (t3 - t2));
+                return p0 * L0 + p1 * L1 + p2 * L2 + p3 * L3;
             };
-    
-            const p2 = {
-                x: p3.x - (p4.x - p0.x) / 6,
-                y: p3.y - (p4.y - p_1.y) / 6,
-                z: p3.z - (p4.z - p0.z) / 6
-            };
-    
-            // Cubic Bézier interpolation
+
+            const t0 = data[closestIndex - 2].date.getTime();
+            const t1 = data[closestIndex - 1].date.getTime();
+            const t2 = data[closestIndex].date.getTime();
+            const t3 = data[Math.min(data.length - 1, closestIndex + 1)].date.getTime();
+            const tCurrent = date.getTime();
+
             position = {
-                x: Math.pow(1 - t, 3) * p0.x + 3 * Math.pow(1 - t, 2) * t * p1.x + 
-                3 * (1 - t) * Math.pow(t, 2) * p2.x + Math.pow(t, 3) * p3.x,
-                y: Math.pow(1 - t, 3) * p0.y + 3 * Math.pow(1 - t, 2) * t * p1.y + 
-                3 * (1 - t) * Math.pow(t, 2) * p2.y + Math.pow(t, 3) * p3.y,
-                z: Math.pow(1 - t, 3) * p0.z + 3 * Math.pow(1 - t, 2) * t * p1.z + 
-                3 * (1 - t) * Math.pow(t, 2) * p2.z + Math.pow(t, 3) * p3.z
+                x: L(tCurrent, t0, t1, t2, t3, p_1.x, p0.x, p3.x, p4.x),
+                y: L(tCurrent, t0, t1, t2, t3, p_1.y, p0.y, p3.y, p4.y),
+                z: L(tCurrent, t0, t1, t2, t3, p_1.z, p0.z, p3.z, p4.z)
             };
         }
         // Update center position if this is the center object
@@ -337,6 +412,7 @@ canvas.addEventListener('mousedown', (e) => {
         e.preventDefault();
         isRightDragging = true;
         lastRightY = e.clientY;
+        lastRightX = e.clientX;
     }
 });
 
@@ -353,8 +429,8 @@ canvas.addEventListener('mousemove', (e) => {
     } else if (isRightDragging) {
         const dy = e.clientY - lastRightY;
         const dx = e.clientX - lastRightX;
-        viewAngle = Math.max(1, Math.min(89, viewAngle + dy * 0.5));
-        rotationAngle = Math.max(0, Math.min(360, rotationAngle + dx * 0.5));
+        viewAngle = Math.max(1, Math.min(179, viewAngle + dy * 0.5));
+        rotationAngle = (rotationAngle + dx * 0.5) % 360;
         document.getElementById('angleSlider').value = viewAngle;
         document.getElementById('angleValue').textContent = Math.round(viewAngle);
         document.getElementById('rotationSlider').value = rotationAngle;
@@ -529,14 +605,27 @@ function intersectRaySphere(origin, direction, sphereCenter, sphereRadius) {
     return t > 0 ? t : null;
 }
 
+// Add after vec3 object definition
+const rayPlaneIntersect = (rayOrigin, rayDir, planePoint, planeNormal) => {
+    const denom = vec3.dot(planeNormal, rayDir);
+    if (Math.abs(denom) > 0.000001) {
+        const t = vec3.dot(vec3.sub(planePoint, rayOrigin), planeNormal) / denom;
+        return t >= 0 ? t : null;
+    }
+    return null;
+};
+
 // Replace renderPhase function with this improved version with ray tracing shadow (can do umbra and penumbra)
 function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
     const ctx = canvas.getContext('2d');
     
+    
+
     // Setup parameters
-    scd = Math.floor(screenRadius / 50);
+    scd = Math.floor(screenRadius / 100);
     sc = Math.max(1, scd * 2);
     wd = Math.ceil(screenRadius / sc);
+
 
     // Find planet's group and get other planets in the same group
     const planetGroup = Object.entries(planetGroups).find(([_, ids]) => 
@@ -560,14 +649,68 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
     });
 
     // Initialize brightness array
-    const brightnessArray = Array.from({ length: 2 * wd }, () => Array(2 * wd).fill(0));
+    const brightnessArray = Array.from({ length: wd }, () => Array(wd).fill(0));
+    const texArray = Array.from({ length: 2 * wd }, () => Array(2 * wd).fill(0));
 
     // Multi-sample sun points for soft shadows
-
-
+    pRot = calculateRotationAngle(planet, currentDate);
+    const scr2=screenRadius * screenRadius;
+    const d2r=Math.PI / 180;
     for (let i = -wd; i < wd; i++) {
         for (let j = -wd; j < wd; j++) {
-            for (let s = 0; s < 8; s++) {
+            const px = i * sc;
+            const py = j * sc;
+            const px2=px * px + py * py;
+            if (px2 >= scr2) continue;
+            // Calculate surface normal at this pixel
+            const pz = Math.sqrt(scr2 - px2);
+            // Convert to normalized vector (this is our normal)
+            const normal = vec3.normalize({
+                x: px / screenRadius,
+                y: py / screenRadius,
+                z: pz / screenRadius
+            });
+
+            // Transform normal to world space
+            const cosA = Math.cos(-viewAngle * d2r);
+            const sinA = Math.sin(-viewAngle * d2r);
+            const worldNormal = {
+                x: normal.x,
+                y: normal.y * cosA - normal.z * sinA,
+                z: normal.y * sinA + normal.z * cosA
+            };
+
+            if (planet.texture) {
+                let uvNormal = { ...worldNormal};
+                const tilt = 23.5;
+                const cosB = Math.cos(tilt * d2r);
+                const sinB = Math.sin(tilt * d2r);
+                // Apply rotation around the planet's axis
+                uvNormal = vec3.rotateXY(uvNormal, (-rotationAngle) * d2r);
+                // Apply tilt rotation first
+                uvNormal = {
+                    x: uvNormal.x,
+                    y: uvNormal.y * cosB - uvNormal.z * sinB,
+                    z: uvNormal.y * sinB + uvNormal.z * cosB
+                };
+
+                const u = 0.5 + Math.atan2(uvNormal.y, uvNormal.x) / (2 * Math.PI);
+                const v = 0.5 - Math.asin(uvNormal.z) / Math.PI;
+                const texX = Math.floor(u * 400+(pRot*400/360)) % 400;
+                const texY = Math.floor(v * 200);
+                const texIndex = (texY * 400 + texX) * 4;
+                col = [
+                    planet.texture[texIndex],
+                    planet.texture[texIndex + 1],
+                    planet.texture[texIndex + 2]
+                ];
+            }
+            texArray[i + wd][j + wd] = col;
+            //brightnessArray[i+ wd][j + wd] = 10;
+
+            for (let s = 0; s < 2; s++) {
+
+
                 const sunPoint = {
                     x: toSun.x + (Math.random() - 0.5) * sunRad * 2,
                     y: toSun.y + (Math.random() - 0.5) * sunRad * 2,
@@ -576,29 +719,10 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
         
                 // Calculate light direction from surface point to sun sample
                 const lightDir = vec3.normalize(sunPoint);
-                const px = i * sc;
-                const py = j * sc;
-
-                if (px * px + py * py >= screenRadius * screenRadius) continue;
-
-                // Calculate surface normal at this pixel
-                const pz = Math.sqrt(screenRadius * screenRadius - px * px - py * py);
                 
-                // Convert to normalized vector (this is our normal)
-                const normal = vec3.normalize({
-                    x: px / screenRadius,
-                    y: py / screenRadius,
-                    z: pz / screenRadius
-                });
-
-                // Transform normal to world space
-                const worldNormal = {
-                    x: normal.x,
-                    y: normal.y * Math.cos(-viewAngle * Math.PI / 180) - normal.z * Math.sin(-viewAngle * Math.PI / 180),
-                    z: normal.y * Math.sin(-viewAngle * Math.PI / 180) + normal.z * Math.cos(-viewAngle * Math.PI / 180)
-                };
 
                 // Calculate world space position of this surface point
+
                 const worldPoint = {
                     x: planet.currentPosition.x + worldNormal.x * ephemerisData[planet.id][0],
                     y: planet.currentPosition.y + worldNormal.y * ephemerisData[planet.id][0],
@@ -621,17 +745,17 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
                 if (isLit) {
                     // Calculate diffuse lighting
                     const diffuse = Math.max(0, vec3.dot(worldNormal, lightDir));
-                    brightnessArray[i + wd][j + wd] += diffuse;
+                    brightnessArray[(i + wd)>>1][(j + wd)>>1] += diffuse;
                 }
             }
         }
     }
     // Blur the brightness array to smooth noise
     const blurRadius = 1;
-    const blurredBrightnessArray = Array.from({ length: 2 * wd }, () => Array(2 * wd).fill(0));
+    const blurredBrightnessArray = Array.from({ length: wd }, () => Array(wd).fill(0));
 
-    for (let i = 0; i < 2 * wd; i++) {
-        for (let j = 0; j < 2 * wd; j++) {
+    for (let i = 0; i < wd; i++) {
+        for (let j = 0; j < wd; j++) {
             let sum = 0;
             let count = 0;
 
@@ -640,7 +764,7 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
                     const ni = i + di;
                     const nj = j + dj;
 
-                    if (ni >= 0 && ni < 2 * wd && nj >= 0 && nj < 2 * wd) {
+                    if (ni >= 0 && ni < wd && nj >= 0 && nj < wd) {
                         sum += brightnessArray[ni][nj];
                         count++;
                     }
@@ -661,13 +785,102 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
 
             // Calculate final brightness
             
-            const brightness = blurredBrightnessArray[i + wd][j + wd] / 8;
+            const brightness = blurredBrightnessArray[(i + wd)>>1][(j + wd)>>1] / 8;
 
             // Apply color
             const outputRGB = calculateColorWithExposure(col[0], col[1], col[2], brightness);
+            col= texArray[i + wd][j + wd];
             ctx.fillStyle = `rgb(${outputRGB[0]},${outputRGB[1]},${outputRGB[2]})`;
             ctx.fillRect(screenX + px - scd, screenY + py - scd, sc, sc);
         }
+    }
+
+    // Draw Saturn's rings if this is Saturn
+    if (screenRadius>20 && planet.id === '699' && planet.rings) {
+        const ringTilt = 26.7 * Math.PI / 180;
+        const viewRad = viewAngle * Math.PI / 180;
+        
+        // Camera position approximation
+        const cameraPos = {
+            x: 0,
+            y: -Math.sin(viewRad) * 10,
+            z: -Math.cos(viewRad) * 10
+        };
+
+        // Normalized vector to sun for lighting
+        const toSun = vec3.normalize({
+            x: -planet.currentPosition.x,
+            y: -planet.currentPosition.y,
+            z: -planet.currentPosition.z
+        });
+
+        ctx.save();
+        ctx.translate(screenX, screenY);
+        
+        const segments = 180; // More segments for smoother rings
+        const angleStep = (2 * Math.PI) / segments;
+        const sz=screenRadius/250;
+        const cosc=Math.cos(viewRad);
+        const sinc=Math.sin(viewRad);
+        for (let r = planet.rings.innerRadius; r <= planet.rings.outerRadius; r += 0.05) {
+            let lastX = null;
+            let lastY = null;
+            for (let i = 0; i < segments; i++) {
+                const angle = i * angleStep;
+                const nextAngle = (i + 1) * angleStep;
+
+                // Calculate ring point in world space relative to Saturn
+                const ringX = Math.cos(angle) * r * screenRadius;
+                const ringY = Math.sin(angle) * r * screenRadius;
+                const ringZ = 0;
+
+                // Transform by ring tilt
+                const tiltedY = ringY * Math.cos(ringTilt);
+                const tiltedZ = ringY * Math.sin(ringTilt);
+
+                // World space position
+                const ringPoint = {
+                    x: ringX,
+                    y: tiltedY,
+                    z: tiltedZ
+                };
+
+                // Check if ring point is visible (not occluded by planet)
+                const toCamera = vec3.normalize({
+                    x: cameraPos.x - ringPoint.x,
+                    y: cameraPos.y - ringPoint.y,
+                    z: cameraPos.z - ringPoint.z
+                });
+
+                // Project point to screen space
+                const screenRingX = ringX;
+                const screenRingY = tiltedY * cosc - tiltedZ * sinc;
+                const screenRingZ = tiltedY * sinc - tiltedZ * cosc;
+
+                if (screenRingZ < 0 && Math.hypot(screenRingX, screenRingY) < screenRadius) {
+                    lastX = null;
+                    continue; // Skip points behind camera
+                }
+                // Check if ring point is in shadow
+                const inShadow = intersectRaySphere(ringPoint, toSun, { x: 0, y: 0, z: 0 }, screenRadius);
+                if (lastX != null) {
+                    // Draw ring point
+                    ctx.beginPath();
+                    ctx.moveTo(lastX, lastY);
+                    ctx.lineTo(screenRingX, screenRingY);
+                    ctx.strokeStyle = `rgba(222, 184, 135, ${inShadow ? 0.2 : 0.8})`;
+                    ctx.lineWidth = sz;
+                    ctx.stroke();
+                    lastX = screenRingX;
+                    lastY = screenRingY;
+                } else {
+                    lastX = screenRingX;
+                    lastY = screenRingY;
+                }
+            }
+        }
+        
+        ctx.restore();
     }
 }
 
@@ -681,6 +894,10 @@ function draw() {
         return;
     }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Display date and time at top left corner
+    ctx.fillStyle = '#fff';
+    ctx.font = '20px Arial';
+    ctx.fillText(currentDate.toLocaleString(), 200, 590);
     
     centerPos = { x: 0, y: 0, z: 0 };
     Object.entries(planets).forEach(([name, planet]) => {
@@ -1045,3 +1262,20 @@ initializeEphemeris();
 // Initial draw
 currentDate = new Date(parseInt(dateSlider.value));
 draw();
+
+// Add this function after planets definition
+function calculateRotationAngle(planet, date) {
+    if (!planet.rotationPeriod) return 0;
+    
+    // Calculate days since epoch (2010-01-01)
+    const epochDate = new Date('2010-01-01');
+    const daysSinceEpoch = (date - epochDate) / (1000 * 60 * 60 * 24);
+    
+    // Calculate total rotations
+    const rotations = daysSinceEpoch / planet.rotationPeriod;
+    
+    // Convert to degrees (keep just the fractional part * 360)
+    const degrees = (rotations % 1) * 360;
+    
+    return degrees + planet.initialRotation;
+}
