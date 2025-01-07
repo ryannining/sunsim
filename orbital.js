@@ -20,6 +20,16 @@ const ctx = canvas.getContext('2d');
 // Load Earth texture
 
 let centerX,centerY,sunX,sunY;
+// Set canvas size and performance monitoring
+let maxres=100;
+let lastFrameTime = performance.now();
+let frameCount = 0;
+let frameRate = 60;
+const targetFrameRate = 20; // Target frame rate in FPS
+const frameWindow = 2; // Number of frames to average
+
+
+
 // Set canvas size
 canvas.width = 1400;
 canvas.height = 600;
@@ -425,7 +435,6 @@ canvas.addEventListener('mousemove', (e) => {
         lastMouseX = e.clientX;
         lastMouseY = e.clientY;
 
-        draw();
     } else if (isRightDragging) {
         const dy = e.clientY - lastRightY;
         const dx = e.clientX - lastRightX;
@@ -437,12 +446,8 @@ canvas.addEventListener('mousemove', (e) => {
         document.getElementById('rotationValue').textContent = Math.round(rotationAngle);
         lastRightY = e.clientY;
         lastRightX = e.clientX;
-        //if (!isRunning) return;
-        if (!this.lastDrawTime || Date.now() - this.lastDrawTime > 100) {
-            this.lastDrawTime = Date.now();
-            draw();
-        }
     }
+    draw();
     
 });
 
@@ -622,7 +627,7 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
     
 
     // Setup parameters
-    scd = Math.floor(screenRadius / 100);
+    scd = Math.floor(screenRadius / maxres);
     sc = Math.max(1, scd * 2);
     wd = Math.ceil(screenRadius / sc);
 
@@ -886,6 +891,12 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
 
 // Modify draw function to handle loading state
 function draw() {
+    const currentTime = performance.now();
+    if (!this.lastDrawTime || currentTime - this.lastDrawTime > 50) {
+        this.lastDrawTime = currentTime;
+    } else {
+        return;
+    }
     if (isLoading) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#fff';
@@ -1133,6 +1144,11 @@ function draw() {
         drawLine(centeredPlanet[1]);
 
     }
+    // Save total draw time
+    const drawEndTime = performance.now();
+    const drawTime = drawEndTime - currentTime;
+    console.log(`Total draw time: ${drawTime.toFixed(2)} ms`);
+    maxres = Math.min(maxres,100*50/drawTime);
 }
 
 // Event listeners
