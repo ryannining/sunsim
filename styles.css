@@ -22,12 +22,12 @@ canvas {
 .control-group {
     margin: 10px 0;
     display: flex;
-    align-items: center;
-    gap: 10px;
+    align-items: left;
+    gap: 5px;
 }
 
 label {
-    width: 150px;
+    xwidth: 150px;
 }
 
 input[type="range"] {
@@ -35,7 +35,7 @@ input[type="range"] {
 }
 
 button {
-    margin: 10px;
+    margin: 1px;
     padding: 8px 16px;
     cursor: pointer;
 }

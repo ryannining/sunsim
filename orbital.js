@@ -32,7 +32,7 @@ const frameWindow = 2; // Number of frames to average
 
 // Set canvas size
 canvas.width = 1400;
-canvas.height = 600;
+canvas.height = 750;
 const sunRad=0.00465; // in AU
 // Update planet data structure to not hardcode sizes
 const planets = {
@@ -889,7 +889,36 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
     }
 }
 
-// Modify draw function to handle loading state
+// Add near other state variables
+let lockTarget = null;
+let autoRotate = false;
+let showTrails = true;
+
+// Replace the calculateLockAngles function with this new version
+function calculateLockAngles(centerPlanet, targetPlanet) {
+    if (!centerPlanet.screenPosition || !targetPlanet.screenPosition) {
+        return { rotation: rotationAngle, adjustment: 0 };
+    }
+
+    // Get screen X positions
+    const centerScreenX = centerX + centerPlanet.screenPosition.x;
+    const targetScreenX = centerX + targetPlanet.screenPosition.x;
+    
+    // Calculate X difference and normalize it
+    const xDiff = targetScreenX - centerScreenX;
+    
+    // Calculate rotation adjustment based on screen position difference
+    // Larger difference = faster rotation
+    const adjustmentSpeed = Math.min(1.0, Math.abs(xDiff) / 100);
+    const adjustment = Math.sign(xDiff) * adjustmentSpeed * 5;
+
+    return {
+        rotation: (rotationAngle + adjustment) % 360,
+        adjustment: adjustment
+    };
+}
+
+// Modify draw function by adding before the return statement
 function draw() {
     const currentTime = performance.now();
     if (!this.lastDrawTime || currentTime - this.lastDrawTime > 50) {
@@ -938,7 +967,7 @@ function draw() {
             }
             }
           const trail = planet.trails;
-          if (trail.length > 1) {
+          if (showTrails && trail.length > 1) {
               const transparency = Math.max(0.1, Math.min(0.7, 0.7 - (planet.screenRadius - 1) * 0.04));
               ctx.strokeStyle = planet.color.replace('1)', `${transparency})`); // Make the line transparent based on screen radius
               ctx.lineWidth = Math.max(1, planet.screenRadius);
@@ -1130,6 +1159,16 @@ function draw() {
                 [r,g,b], // planet color
                 planet // planet object
             );
+            if (lockTarget && lockTarget.toString() === planet.id) {
+                renderPhase(
+                    canvas,
+                    canvas.width-105, // x center
+                    105, // y center
+                    100, // radius in pixels
+                    [r,g,b], // planet color
+                    planet // planet object
+                );
+            }
         }
         // Draw planet name
         ctx.font = '12px Arial';
@@ -1149,6 +1188,33 @@ function draw() {
     const drawTime = drawEndTime - currentTime;
     console.log(`Total draw time: ${drawTime.toFixed(2)} ms`);
     maxres = Math.min(maxres,100*50/drawTime);
+
+    // Apply lock target tracking if enabled
+
+    if (lockTarget && centerObject && autoRotate) {
+        const centerPlanet = Object.values(planets).find(p => p.id === centerObject.toString());
+        const targetPlanet = Object.values(planets).find(p => p.id === lockTarget.toString());
+        
+        if (centerPlanet && targetPlanet) {
+            const angles = calculateLockAngles(centerPlanet, targetPlanet);
+            
+            // Update rotation angle smoothly
+            rotationAngle = angles.rotation;
+            
+            // Update UI sliders
+            document.getElementById('rotationSlider').value = Math.round(rotationAngle);
+            document.getElementById('rotationValue').textContent = Math.round(rotationAngle);
+            
+            // Optional: Display alignment info for debugging
+            /*
+            console.log(
+                'Lock adjustment:', angles.adjustment.toFixed(2),
+                'Center X:', Math.round(centerX + centerPlanet.screenPosition.x),
+                'Target X:', Math.round(centerX + targetPlanet.screenPosition.x)
+            );
+            */
+        }
+    }
 }
 
 // Event listeners
@@ -1269,6 +1335,43 @@ document.getElementById('rotationSlider').addEventListener('input', (e) => {
     // Clear trails when changing angle
     clearTrails();
     draw();
+});
+
+// Add event listener for lock target changes
+document.getElementById('lockSelect').addEventListener('change', (e) => {
+    lockTarget = e.target.value === '0' ? null : parseInt(e.target.value);
+    if (!lockTarget) {
+        autoRotate = false;
+        document.getElementById('autoRotateCheck').checked = false;
+    }
+    draw();
+});
+
+document.getElementById('autoRotateCheck').addEventListener('change', (e) => {
+    autoRotate = e.target.checked;
+    if (autoRotate && !lockTarget) {
+        // If enabling auto-rotate without a lock target, disable it
+        autoRotate = false;
+        e.target.checked = false;
+        alert('Please select a lock target first');
+    }
+});
+
+// Add event listener for trails toggle
+document.getElementById('showTrails').addEventListener('change', (e) => {
+    showTrails = e.target.checked;
+    draw();
+});
+
+// Add after other event listeners
+document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+        isRunning = !isRunning;
+        document.getElementById('playPauseBtn').textContent = isRunning ? 'Pause' : 'Start';
+        if (isRunning) {
+            animate();
+        }
+    }
 });
 
 // Initialize the simulation
