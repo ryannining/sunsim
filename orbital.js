@@ -382,19 +382,20 @@ function calculateScale() {
     const targetSize = Math.min(canvas.width, canvas.height) * 0.4;
     AU_TO_PIXELS = targetSize / maxExtent;
 }
-
+let isLoading=false;
 // Initialize ephemeris data
 async function initializeEphemeris() {
-    isLoading = true;
-    const startDate = new Date('2010-01-01');
-    const endDate = new Date('2026-12-31');
-    if (Object.keys(ephemerisData).length === 0) {
-        for (const [name, planet] of Object.entries(planets)) {
-            console.log(`Fetching data for ${name}...`);
-            ephemerisData[planet.id] = await fetchEphemerisData(planet.id, startDate, endDate);
+    if (ephemerisData.length === 0) {
+        isLoading = true;
+        const startDate = new Date('2010-01-01');
+        const endDate = new Date('2026-12-31');
+        if (Object.keys(ephemerisData).length === 0) {
+            for (const [name, planet] of Object.entries(planets)) {
+                console.log(`Fetching data for ${name}...`);
+                ephemerisData[planet.id] = await fetchEphemerisData(planet.id, startDate, endDate);
+            }
         }
     }
-    
     isLoading = false;
     
 }
@@ -630,6 +631,13 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
     scd = Math.floor(screenRadius / maxres);
     sc = Math.max(1, scd * 2);
     wd = Math.ceil(screenRadius / sc);
+    // draw circle at screen radius
+    ctx.beginPath();
+    ctx.lineWidth = 1/zoom;
+    ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+    ctx.arc(screenX, screenY, screenRadius, 0, 2 * Math.PI);
+    ctx.stroke();
+
 
 
     // Find planet's group and get other planets in the same group
@@ -790,7 +798,7 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
 
             // Calculate final brightness
             
-            const brightness = blurredBrightnessArray[(i + wd)>>1][(j + wd)>>1] / 8;
+            const brightness = blurredBrightnessArray[(i + wd)>>1][(j + wd)>>1] / 8-0.2;
 
             // Apply color
             const outputRGB = calculateColorWithExposure(col[0], col[1], col[2], brightness);
@@ -919,6 +927,151 @@ function calculateLockAngles(centerPlanet, targetPlanet) {
 }
 
 // Modify draw function by adding before the return statement
+function updateEphemerisDisplay(planet) {
+    const AU_TO_KM = 149597870.7;
+    const data = ephemerisData[planet.id][1];
+    const currentIndex = data.findIndex(entry => entry.date >= currentDate);
+    
+    if (currentIndex < 1) return;
+    
+    // Get current and previous positions
+    const pos1 = data[currentIndex - 1].position;
+    const pos2 = data[currentIndex].position;
+    
+    // Calculate time difference in seconds
+    const timeDiff = (data[currentIndex].date - data[currentIndex - 1].date) / 1000;
+    
+    // Calculate velocity (km/s)
+    const velocity = {
+        x: (pos2.x - pos1.x) * AU_TO_KM / timeDiff,
+        y: (pos2.y - pos1.y) * AU_TO_KM / timeDiff,
+        z: (pos2.z - pos1.z) * AU_TO_KM / timeDiff
+    };
+    
+    // Calculate acceleration (km/s²)
+    const pos0 = currentIndex > 1 ? data[currentIndex - 2].position : pos1;
+    const prevVelocity = {
+        x: (pos1.x - pos0.x) * AU_TO_KM / timeDiff,
+        y: (pos1.y - pos0.y) * AU_TO_KM / timeDiff,
+        z: (pos1.z - pos0.z) * AU_TO_KM / timeDiff
+    };
+    const acceleration = {
+        x: (velocity.x - prevVelocity.x)*1000 / timeDiff,
+        y: (velocity.y - prevVelocity.y)*1000 / timeDiff,
+        z: (velocity.z - prevVelocity.z)*1000 / timeDiff
+    };
+    
+    // Calculate distance from sun
+    const distance = Math.sqrt(
+        pos2.x * pos2.x + 
+        pos2.y * pos2.y + 
+        pos2.z * pos2.z
+    ) * AU_TO_KM;
+    
+    // Get radius in km
+    const radius = ephemerisData[planet.id][0] * AU_TO_KM;
+    
+    // Update display
+    const dataPanel = document.getElementById('ephemeris-data');
+    dataPanel.innerHTML = `
+        <strong>${planet.id === '399' ? 'Earth' : planet.id === '301' ? 'Moon' : planet.id}</strong><br>
+        Position:<br>
+        X: ${(pos2.x * AU_TO_KM).toFixed(2)} km<br>
+        Y: ${(pos2.y * AU_TO_KM).toFixed(2)} km<br>
+        Z: ${(pos2.z * AU_TO_KM).toFixed(2)} km<br>
+        Velocity:<br>
+        X: ${velocity.x.toFixed(2)} km/s<br>
+        Y: ${velocity.y.toFixed(2)} km/s<br>
+        Z: ${velocity.z.toFixed(2)} km/s<br>
+        Acceleration:<br>
+        X: ${acceleration.x.toFixed(4)} m/s²<br>
+        Y: ${acceleration.y.toFixed(4)} m/s²<br>
+        Z: ${acceleration.z.toFixed(4)} m/s²<br>
+        Radius: ${radius.toFixed(2)} km<br>
+        Distance from Sun: ${distance.toFixed(2)} km
+    `;
+}
+
+function updateEphemerisData() {
+    const dataPanel = document.getElementById('ephemeris-data');
+    if (!dataPanel) return;
+    
+    const AU_TO_KM = 149597870.7;
+    let html = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Planet</th>
+                    <th>Position (AU)</th>
+                    <th>Velocity (km/s)</th>
+                    <th>Acceleration (m/s²)</th>
+                    <th>Radius (km)</th>
+                    <th>Distance from Sun (km)</th>
+                </tr>
+            </thead>
+            <tbody>`;
+    
+    Object.entries(planets).forEach(([name, planet]) => {
+        if (!planet.currentPosition) return;
+        
+        // Calculate distance from sun
+        const distance = Math.sqrt(
+            planet.currentPosition.x ** 2 +
+            planet.currentPosition.y ** 2 +
+            planet.currentPosition.z ** 2
+        );
+        
+        // Get radius in km
+        const radius = ephemerisData[planet.id][0] * AU_TO_KM;
+        
+        // Calculate velocity and acceleration
+        const data = ephemerisData[planet.id][1];
+        const currentIndex = data.findIndex(entry => entry.date >= currentDate);
+        let velocity = { x: 0, y: 0, z: 0 };
+        let acceleration = { x: 0, y: 0, z: 0 };
+        
+        if (currentIndex > 0) {
+            const pos1 = data[currentIndex - 1].position;
+            const pos2 = data[currentIndex].position;
+            const timeDiff = (data[currentIndex].date - data[currentIndex - 1].date) / 1000;
+            
+            velocity = {
+                x: (pos2.x - pos1.x) * AU_TO_KM / timeDiff,
+                y: (pos2.y - pos1.y) * AU_TO_KM / timeDiff,
+                z: (pos2.z - pos1.z) * AU_TO_KM / timeDiff
+            };
+            
+            if (currentIndex > 1) {
+                const pos0 = data[currentIndex - 2].position;
+                const prevVelocity = {
+                    x: (pos1.x - pos0.x) * AU_TO_KM / timeDiff,
+                    y: (pos1.y - pos0.y) * AU_TO_KM / timeDiff,
+                    z: (pos1.z - pos0.z) * AU_TO_KM / timeDiff
+                };
+                
+                acceleration = {
+                    x: (velocity.x - prevVelocity.x) * 1000 / timeDiff,
+                    y: (velocity.y - prevVelocity.y) * 1000 / timeDiff,
+                    z: (velocity.z - prevVelocity.z) * 1000 / timeDiff
+                };
+            }
+        }
+        
+        html += `
+            <tr>
+                <td>${name.charAt(0).toUpperCase() + name.slice(1)}</td>
+                <td>(${planet.currentPosition.x.toFixed(3)}, ${planet.currentPosition.y.toFixed(3)}, ${planet.currentPosition.z.toFixed(3)})</td>
+                <td>(${velocity.x.toFixed(2)}, ${velocity.y.toFixed(2)}, ${velocity.z.toFixed(2)})</td>
+                <td>(${acceleration.x.toFixed(4)}, ${acceleration.y.toFixed(4)}, ${acceleration.z.toFixed(4)})</td>
+                <td>${radius.toFixed(0)}</td>
+                <td>${(distance * AU_TO_KM).toFixed(0)}</td>
+            </tr>`;
+    });
+    
+    html += `</tbody></table>`;
+    dataPanel.innerHTML = html;
+}
+
 function draw() {
     const currentTime = performance.now();
     if (!this.lastDrawTime || currentTime - this.lastDrawTime > 50) {
@@ -926,6 +1079,8 @@ function draw() {
     } else {
         return;
     }
+    
+    updateEphemerisData();
     if (isLoading) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#fff';
@@ -937,7 +1092,8 @@ function draw() {
     // Display date and time at top left corner
     ctx.fillStyle = '#fff';
     ctx.font = '20px Arial';
-    ctx.fillText(currentDate.toLocaleString(), 200, 590);
+    ctx.textAlign = 'left';
+    ctx.fillText(currentDate.toLocaleString(), 20, canvas.height - 20);
     
     centerPos = { x: 0, y: 0, z: 0 };
     Object.entries(planets).forEach(([name, planet]) => {
@@ -1159,6 +1315,8 @@ function draw() {
                 [r,g,b], // planet color
                 planet // planet object
             );
+            // draw planet information
+
             if (lockTarget && lockTarget.toString() === planet.id) {
                 renderPhase(
                     canvas,
@@ -1171,23 +1329,51 @@ function draw() {
             }
         }
         // Draw planet name
-        ctx.font = '12px Arial';
+        // font size based on zoom
+        const fontscale = Math.max(8, 12*zoom/100000);
+         
+        ctx.font = fontscale+'px Arial';
         ctx.fillStyle = 'white';
         ctx.textAlign = 'center';
-        ctx.fillText(name.charAt(0).toUpperCase() + name.slice(1), screenX, screenY - screenRadius - 5);
+        const iy =screenY - screenRadius - fontscale*5;
+        ctx.fillText(name.charAt(0).toUpperCase() + name.slice(1), screenX, iy);
+        // Draw planet info
+        if (screenRadius > 10) {
+            // if planet have parent then get distance from parent
+            if (planet.parent) {
+                // find planets parent
+                const parent = Object.entries(planets).find(([name, cplanet]) => cplanet.id === planet.parent);
+                if (parent)
+                    planet.distance = Math.sqrt((planet.currentPosition.x-parent[1].currentPosition.x)**2+
+                                    (planet.currentPosition.y-parent[1].currentPosition.y)**2+
+                                    (planet.currentPosition.z-parent[1].currentPosition.z)**2);
+            } else
+            planet.distance = Math.sqrt(planet.currentPosition.x**2+planet.currentPosition.y**2+planet.currentPosition.z**2);
+            //planet.velocity = Math.sqrt(planet.currentVelocity.x**2+planet.currentVelocity.y**2+planet.currentVelocity.z**2);
+            AU_TO_KM = 149597870.7;
+            ctx.fillText('Diameter : ' + (planetRadius* AU_TO_KM).toFixed(2) + ' km', screenX, iy+fontscale);
+            ctx.fillText('Distance: ' + (planet.distance*AU_TO_KM).toFixed(2) + ' km', screenX, iy+fontscale*2);
+           // ctx.fillText('Velocity: ' + planet.velocity.toFixed(2) + ' km/s', screenX, iy+12*3);
+            //ctx.fillText('Acceleration: ' + planet.acceleration.toFixed(2) + ' km/s²', screenX, iy+12*4);
+        }
     });
 
     // After drawing everything else, render the overview if centered on a planet
     if (centerObject !== 0) {
         const centeredPlanet = Object.entries(planets).find(([name, planet]) => planet.id === lightObject.toString());
         drawLine(centeredPlanet[1]);
-
+        
+        // Update ephemeris data display
+        const currentPlanet = Object.values(planets).find(p => p.id === centerObject.toString());
+        if (currentPlanet) {
+            //updateEphemerisDisplay(currentPlanet);
+        }
     }
     // Save total draw time
     const drawEndTime = performance.now();
     const drawTime = drawEndTime - currentTime;
     console.log(`Total draw time: ${drawTime.toFixed(2)} ms`);
-    maxres = Math.min(maxres,100*50/drawTime);
+    maxres = Math.min(maxres,100*100/drawTime);
 
     // Apply lock target tracking if enabled
 

@@ -31,6 +31,39 @@
             top: 50%;
             transform: translate(-50%, -50%);
         }
+        .ephemeris-panel {
+            width: 300px;
+            padding: 10px;
+            margin-left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            font-size: 12px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .ephemeris-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            text-align: center;
+        }
+        #ephemeris-data {
+            line-height: 1.4;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 4px;
+            text-align: left;
+            border-bottom: 1px solid #444;
+        }
+        th {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        tr:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
     </style>
 </head>
 <body>
@@ -126,8 +159,47 @@
             <button id="clearBtn">Clear</button>
         </div>
         <canvas id="solarSystem"></canvas>
+        <div class="ephemeris-panel">
+            <h3>Ephemeris Data</h3>
+            <div id="ephemeris-data"></div>
+        </div>
     </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
     <script src="ephemeris.js"></script>
-    <script src="orbital.js"></script>
+        <div class="control-group">
+            <label>Renderer:</label>
+            <select id="rendererSelect">
+                <option value="canvas2d">Canvas 2D</option>
+                <option value="webgl">WebGL</option>
+                <option value="raymarch">Raymarching</option>
+            </select>
+        </div>
+        <script>
+            const rendererSelect = document.getElementById('rendererSelect');
+            rendererSelect.addEventListener('change', () => {
+                const scripts = document.querySelectorAll('script[src$=".js"]');
+                scripts.forEach(script => script.remove());
+                
+                if (rendererSelect.value === 'canvas2d') {
+                    const script = document.createElement('script');
+                    script.src = 'orbital.js';
+                    document.body.appendChild(script);
+                } else if (rendererSelect.value === 'webgl') {
+                    const script = document.createElement('script');
+                    script.src = 'orbitalGL.js';
+                    document.body.appendChild(script);
+                } else {
+                    const script = document.createElement('script');
+                    script.src = 'orbitalRM.js';
+                    document.body.appendChild(script);
+                }
+            });
+            
+            // Load default renderer
+            const defaultScript = document.createElement('script');
+            defaultScript.src = 'orbital.js';
+            document.body.appendChild(defaultScript);
+            rendererSelect.value = 'canvas2d'; // Set dropdown to Canvas 2D
+        </script>
 </body>
 </html>
