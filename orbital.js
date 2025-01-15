@@ -477,7 +477,7 @@ canvas.addEventListener('wheel', (e) => {
     
     const zoomSpeed = 0.1;
     if (e.deltaY < 0) {
-        zoom = Math.min(zoom * (1 + zoomSpeed), 100000);
+        zoom = Math.min(zoom * (1 + zoomSpeed), 200000);
     } else {
         zoom = Math.max(zoom * (1 - zoomSpeed), 1);
     }
@@ -632,11 +632,11 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
     sc = Math.max(1, scd * 2);
     wd = Math.ceil(screenRadius / sc);
     // draw circle at screen radius
-    ctx.beginPath();
-    ctx.lineWidth = 1/zoom;
-    ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
-    ctx.arc(screenX, screenY, screenRadius, 0, 2 * Math.PI);
-    ctx.stroke();
+    // ctx.beginPath();
+    // ctx.lineWidth = 1/zoom;
+    // ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+    // ctx.arc(screenX, screenY, screenRadius, 0, 2 * Math.PI);
+    // ctx.stroke();
 
 
 
@@ -662,7 +662,7 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
     });
 
     // Initialize brightness array
-    const brightnessArray = Array.from({ length: wd }, () => Array(wd).fill(0));
+    const brightnessArray = Array.from({ length: wd+2 }, () => Array(wd+2).fill(0));
     const texArray = Array.from({ length: 2 * wd }, () => Array(2 * wd).fill(0));
 
     // Multi-sample sun points for soft shadows
@@ -721,7 +721,7 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
             texArray[i + wd][j + wd] = col;
             //brightnessArray[i+ wd][j + wd] = 10;
 
-            for (let s = 0; s < 2; s++) {
+            for (let s = 0; s < 1; s++) {
 
 
                 const sunPoint = {
@@ -754,16 +754,17 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
                         }
                     }
                 }
-
                 if (isLit) {
                     // Calculate diffuse lighting
                     const diffuse = Math.max(0, vec3.dot(worldNormal, lightDir));
-                    brightnessArray[(i + wd)>>1][(j + wd)>>1] += diffuse;
+                    brightnessArray[(i + wd+1)>>1][(j + wd+1)>>1] += diffuse*2;
+
                 }
+                
             }
         }
     }
-    // Blur the brightness array to smooth noise
+    // // Blur the brightness array to smooth noise
     const blurRadius = 1;
     const blurredBrightnessArray = Array.from({ length: wd }, () => Array(wd).fill(0));
 
@@ -778,7 +779,7 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
                     const nj = j + dj;
 
                     if (ni >= 0 && ni < wd && nj >= 0 && nj < wd) {
-                        sum += brightnessArray[ni][nj];
+                        sum += brightnessArray[ni+1][nj+1];
                         count++;
                     }
                 }
@@ -787,26 +788,46 @@ function renderPhase(canvas, screenX, screenY, screenRadius, col, planet) {
             blurredBrightnessArray[i][j] = sum / count;
         }
     }
-   // brightnessArray = blurredBrightnessArray;
-    // Render the brightness values
+
+
+    const bitmapData = ctx.createImageData(wd*2, wd*2);
+
     for (let i = -wd; i < wd; i++) {
         for (let j = -wd; j < wd; j++) {
-            const px = i * sc;
-            const py = j * sc;
-
-            if (px * px + py * py >= screenRadius * screenRadius) continue;
-
-            // Calculate final brightness
-            
-            const brightness = blurredBrightnessArray[(i + wd)>>1][(j + wd)>>1] / 8-0.2;
-
-            // Apply color
+            col = texArray[i + wd][j + wd];
+            // Calculate the position in the BitmapData array
+            const alpha=col[0]+col[1]+col[2]>0;
+            const x = i+wd;
+            const y = j+wd;
+            const index = (y * wd*2 + x) * 4;
+            bitmapData.data[index + 3] = 0;          // Alpha (fully opaque)
+            if (!alpha) continue;
+            const brightness = blurredBrightnessArray[(i + wd) >> 1][(j + wd) >> 1] / 8 - 0.2;
             const outputRGB = calculateColorWithExposure(col[0], col[1], col[2], brightness);
-            col= texArray[i + wd][j + wd];
-            ctx.fillStyle = `rgb(${outputRGB[0]},${outputRGB[1]},${outputRGB[2]})`;
-            ctx.fillRect(screenX + px - scd, screenY + py - scd, sc, sc);
+
+
+
+            // Set the pixel color in the BitmapData
+            bitmapData.data[index] = outputRGB[0];     // Red
+            bitmapData.data[index + 1] = outputRGB[1]; // Green
+            bitmapData.data[index + 2] = outputRGB[2]; // Blue
+            bitmapData.data[index + 3] = 255;          // Alpha (fully opaque)
         }
     }
+
+    // Draw the BitmapData onto the temporary canvas and then draw streched to the ctx
+    tempCanvas= document.createElement('canvas');
+    tempCanvas.width = wd*2+4;
+    tempCanvas.height = wd*2+4;
+    tempCtx = tempCanvas.getContext('2d');
+    // draw circle
+    tempCtx.putImageData(bitmapData, 2, 2);
+    tempCtx.beginPath();
+    tempCtx.arc(wd+2, wd+2, wd, 0, 2 * Math.PI);
+    tempCtx.strokeStyle = `#005`;
+    tempCtx.lineWidth = 2;
+    tempCtx.stroke();
+    ctx.drawImage(tempCanvas, screenX-screenRadius-2, screenY-screenRadius-2,screenRadius*2,screenRadius*2);
 
     // Draw Saturn's rings if this is Saturn
     if (screenRadius>20 && planet.id === '699' && planet.rings) {
